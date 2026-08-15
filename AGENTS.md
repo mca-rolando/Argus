@@ -365,7 +365,12 @@ imported by, or reused by telemetry collectors.
 
 A collector may use a local shell command only when:
 
-- No suitable local UniFi or operating-system API exists.
+- No suitable documented official local API for the UniFi Application that owns
+  the data, other documented official local UniFi interface, or suitable safe
+  operating-system API exists.
+- An evidence-backed justification documents the required telemetry, the
+  higher-priority sources evaluated, why they are insufficient, and why the
+  proposed operating-system fallback is necessary.
 - The telemetry requirement is documented.
 - The exact command, executable, arguments, expected output, timeout, and
   supported platform are documented.
@@ -565,28 +570,55 @@ one for the other.
 
 ## 14. UniFi Integration Rules
 
-ARGUS must prefer official local UniFi APIs.
+ARGUS must use the documented official local API for the UniFi Application
+that owns the required data whenever that API supplies the required telemetry.
 
-Collectors must:
+Application ownership is:
 
-- Be capability-driven and version-aware.
-- Record relevant UniFi OS, Network, and Protect versions.
-- Isolate vendor-specific payload parsing behind adapters.
-- Normalize data before it reaches core health logic.
-- Preserve fixture examples for each supported version.
-- Treat absent or unsupported fields as unavailable, not as failure.
-- Apply explicit timeouts, TLS policy, retries, and response-size bounds.
-- Never scrape the GUI or automate a browser.
-- Never use write endpoints.
-- Never send configuration-changing methods or payloads.
-- Never collect secrets merely because an endpoint or local command returns
-  them.
-- Redact sensitive fields before logging, spooling, or transmission.
-- Use local shell telemetry collection only under Section 8.5.
-- Respect appliance resource budgets and native-service priority.
+- UniFi Network data belongs to the documented official Network local API.
+- UniFi Protect data belongs to the documented official Protect local API.
+- Data owned by another UniFi Application belongs to that application's
+  documented official local API.
+- Cross-application substitution requires explicit evidence that the substitute
+  is authoritative for the exact fact being collected.
 
-Site Manager and SNMP are optional secondary sources and must not silently
-become dependencies for primary local site health.
+Collectors must apply this source-priority hierarchy:
+
+1. The documented official local API of the UniFi Application that owns the
+   data.
+2. Another documented official local UniFi interface that is explicitly
+   authoritative for the required fact.
+3. A documented, read-only operating-system API available locally on the
+   console.
+4. A strictly bounded, documented, read-only local executable under Section
+   8.5, but only with evidence-backed justification.
+5. Site Manager or SNMP as an explicitly approved secondary source when its
+   limitations and authority are documented.
+6. An experimental, explicitly approved source governed by an accepted ADR and
+   the UniFi Evidence Rule.
+7. `UNKNOWN` or `UNAVAILABLE` when no safe, evidenced source exists.
+
+Internal databases, private application files, undocumented endpoints, GUI
+scraping, browser automation, reverse-engineered interfaces, internal message
+buses, container inspection, and native-service process introspection are not
+normal fallback mechanisms. Production use of any such source requires an
+accepted ADR, explicit security and appliance-safety analysis, approved lab
+evidence for every supported platform and version, isolated adapters,
+compatibility fixtures, bounded resource tests, and an explicit determination
+that no documented official source can satisfy the requirement.
+
+Network and Protect must use separate application-specific adapters, endpoint
+manifests, response schemas, compatibility fixtures, capability decisions, and
+credential handles. Shared transport infrastructure must not merge or obscure
+application-specific contracts, authorization, version behavior, or failure
+semantics.
+
+ARGUS must support separate Network and Protect credential handles. The same
+physical secret may back both handles only when official documentation or
+approved lab evidence proves reuse for the exact platform, UniFi OS version,
+Network version, and Protect version. Similar key formats, successful use on
+one application, or behavior observed on a different platform or version is
+not evidence of cross-application reuse.
 
 ### 14.1 UniFi Evidence Rule
 
@@ -612,6 +644,304 @@ production use.
 
 Tests or mocks invented solely from assumptions are not evidence of actual
 UniFi support.
+
+
+### 14.2 HTTP Endpoint Allowlisting
+
+Each collector must use an immutable, version-specific allowlist whose entries
+define:
+
+- The owning UniFi Application.
+- The exact HTTP method.
+- The exact path template.
+- Allowed path-parameter formats and value domains.
+- Allowed fixed or locally derived query parameters.
+- The expected response schema and maximum response size.
+- Pagination behavior and maximum pages or records.
+- Timeout, cadence, concurrency, retry, and backoff limits.
+
+Allowlisting must match the normalized method and path against a declared
+template before dispatch. Path parameters must be encoded as individual path
+segments after validation. A host, URL, path template, method, query parameter
+name, request body, header set, redirect target, or endpoint supplied by the
+ARGUS server must not extend or alter an allowlist.
+
+The ARGUS server may identify a previously discovered device for monitoring
+only through an ARGUS-owned stable identifier. The Agent must resolve that
+identifier locally to the current vendor-specific Network or Protect device
+identifier using its validated local inventory. Before use in an allowlisted
+operation, the Agent must validate that the locally resolved vendor identifier
+belongs to the currently discovered and administratively approved local
+inventory.
+
+The ARGUS server must never supply a vendor-specific Network or Protect device
+identifier as an unvalidated HTTP path parameter, WebSocket path parameter,
+query value, subscription value, or other local API request component.
+
+### 14.3 WebSocket Allowlisting
+
+A WebSocket collector must use a separate, immutable, version-specific
+allowlist whose entries define:
+
+- The owning UniFi Application.
+- The exact WebSocket path template.
+- Allowed path and query parameters.
+- The permitted subscription operation, if one is required.
+- The accepted message types and reviewed fields.
+- Maximum frame, message, buffer, and queue sizes.
+- Connection, idle, heartbeat, reconnect, and backoff limits.
+- Snapshot and reconciliation requirements.
+
+WebSocket support for one application, platform, or version must not be
+generalized to another. A documented connection path alone does not establish
+message ordering, delivery guarantees, replay, completeness, or suitability as
+the authoritative health source.
+
+Telemetry collectors must not contain or expose a generic
+`request(method, url, body)` or equivalent arbitrary HTTP capability. They must
+not contain or expose a generic `open_websocket(url, subscription)` or
+equivalent arbitrary WebSocket capability.
+
+The ARGUS server must not supply arbitrary local API origins, hosts, ports,
+schemes, methods, paths, path components, query strings, query parameters,
+headers, request bodies, redirect targets, WebSocket destinations,
+subscriptions, or endpoint definitions. Server policy may enable or disable a
+compiled collector capability and may select only bounded, locally validated
+values expressly permitted by its compatibility manifest.
+
+Administrator device-selection policy must cross the server/agent trust
+boundary only as an ARGUS-owned stable identifier and bounded monitoring state.
+Vendor identifiers remain locally discovered values. Resolution must fail
+closed when the ARGUS identifier is unknown, ambiguous, stale, no longer
+approved, or no longer maps to the current validated inventory.
+
+### 14.4 Local Origin and Transport
+
+Local API transport configuration must satisfy all of the following:
+
+- The origin is established locally during authorized installation or local
+  configuration.
+- The origin is fixed for normal collector operation.
+- The scheme, host, port, base-path prefix, TLS behavior, and certificate policy
+  come from an evidence-backed compatibility manifest.
+- The origin resolves only to an evidence-approved local UniFi Application
+  endpoint for the monitored site. That endpoint may be on another local UniFi
+  console or appliance only when ADR-0007 and the compatibility manifest
+  explicitly support the exact topology and platform/version combination.
+- TLS verification is enabled outside explicitly isolated test fixtures.
+- Redirect following is disabled.
+- Credentials are sent only to the validated origin and application path
+  permitted by the selected manifest.
+
+This allowance does not establish support for any multi-appliance topology and
+must not permit arbitrary LAN discovery, arbitrary hosts, Internet or cloud
+endpoints, server-supplied origins, or unrestricted lateral access. A topology
+such as a gateway running Network with Protect on a separate UNVR remains
+unsupported until ADR-0007 and exact platform/version lab evidence approve it.
+
+ARGUS must not hardcode one universal Network or Protect REST origin, port, or
+path prefix across all supported platforms. Exact origins and prefixes must be
+validated for the applicable console family, UniFi OS version, application,
+and application version under Section 14.1.
+
+An unexpected redirect, host change, port change, path-prefix change,
+certificate failure, application mismatch, or manifest mismatch must stop the
+affected collector and produce a bounded safe diagnostic. It must not trigger
+automatic origin discovery across arbitrary ports, containers, files, or
+processes.
+
+### 14.5 Read-Only Enforcement
+
+Official documentation does not make an operation safe merely because the
+operation is documented. ARGUS collectors must:
+
+- Use only explicitly allowlisted read-only HTTP methods and paths.
+- Reject `POST`, `PUT`, `PATCH`, and `DELETE` for UniFi telemetry, including
+  endpoints that use such methods for actions described as queries,
+  subscriptions, tests, acknowledgements, or temporary changes.
+- Never invoke Network or Protect operations that alter configuration, device
+  state, application state, recordings, streams, views, arm state, profiles,
+  relays, sirens, PTZ position, talkback, or other native behavior.
+- Never upload, create, update, adopt, unadopt, restart, reboot, provision,
+  upgrade, delete, acknowledge, silence, arm, disarm, enable, disable, or
+  execute an action against a UniFi Application, console, or device.
+- Enforce method restrictions in the transport boundary in addition to
+  collector-specific allowlists.
+- Test that every disallowed method fails before network dispatch.
+
+Protect write and control operations remain prohibited, including camera
+settings, device configuration, PTZ, talkback, sirens, relays, RTSPS
+creation or deletion, live-view creation or modification, arm modes and
+profiles, uploads, recording changes, adoption, firmware operations, and every
+other documented or undocumented state-changing operation.
+
+### 14.6 Fact and Health Semantics
+
+A fact that an entity is present, adopted, configured, assigned, enabled,
+licensed, defined, or returned by an inventory endpoint establishes only that
+fact. It must not be interpreted as proof that the entity, application,
+interface, uplink, VPN, camera, recorder, recording path, stream, storage, or
+native service is operational.
+
+Health logic may use only reviewed operational fields whose meaning is
+documented or supported by approved lab evidence for the applicable version.
+Configuration presence and administrative enablement must remain distinct from
+observed operational state.
+
+For Protect:
+
+- Camera inventory and camera operational observations must remain distinct.
+- A Protect-reported camera state of `CONNECTED` means only that Protect reports
+  the camera as connected.
+- `CONNECTED` must not imply successful recording, usable live or recorded
+  video, current images, working audio, healthy storage, current firmware,
+  complete camera hardware health, or end-to-end monitoring correctness.
+- `CONNECTING` is a transient Protect-reported connectivity observation. Its
+  debounce, grace period, and health effect belong to the health-engine ADR.
+- `DISCONNECTED` is a Protect-reported camera connectivity observation. Alert
+  thresholds, confirmation, and incident correlation belong to the
+  health-engine ADR.
+- Any additional state value must remain unmapped until its semantics are
+  documented or established by approved evidence.
+- Missing, unsupported, or unrecognized state values produce `UNKNOWN` or
+  `UNAVAILABLE`, not an inferred failure.
+- Loss of the Protect source or ARGUS Agent makes dependent camera observations
+  stale and ultimately `UNKNOWN`; it must not mark cameras `OFFLINE`.
+- A camera observation must carry source and freshness context sufficient to
+  distinguish a single-camera condition from a Protect application outage, NVR
+  outage, agent outage, or stale data.
+- Protect application reachability must remain distinct from NVR operational
+  health. Successful API authentication or inventory retrieval alone does not
+  prove NVR, recording, storage, or camera health.
+- NVR failure may be asserted only from reviewed operational evidence defined
+  by the accepted health and compatibility ADRs.
+- Failure to contact Protect may mean application unavailability,
+  authentication failure, TLS failure, version incompatibility, console
+  pressure, network failure, or agent failure. ARGUS must preserve the observed
+  failure category and must not silently collapse all cases into an NVR outage.
+
+### 14.7 Protect WebSocket Rules
+
+The Protect event WebSocket is disabled in Phase 0.
+
+A documented Protect device-update WebSocket may supplement an initial
+read-only snapshot only after ADR-0007 accepts the exact path, message schema,
+resource bounds, and compatibility evidence for the target versions. It must
+not replace snapshots or reconciliation.
+
+Protect WebSocket sequencing, ordering, delivery guarantees, completeness, and
+replay are unproven unless official documentation or approved evidence
+establishes them for the exact version. ARGUS must not describe an
+agent-generated timestamp, receive counter, spool sequence, connection epoch,
+or normalized event order as a Protect-provided sequence number.
+
+The Protect acquisition model must use:
+
+1. An initial bounded read-only snapshot.
+2. Optional allowlisted device-update WebSocket observations.
+3. Periodic bounded snapshot reconciliation.
+4. Mandatory reconciliation after connection establishment, reconnect,
+   authentication recovery, detected gaps, parser rejection, buffer overflow,
+   or application restart.
+5. Freshness expiration when neither snapshots nor accepted updates establish
+   current state.
+
+A WebSocket disconnect must not itself mark cameras disconnected. It makes the
+WebSocket source unavailable and starts freshness handling while reconciliation
+is attempted under bounded retry and backoff policy.
+
+WebSocket updates must be treated as hints until reconciled where delivery,
+ordering, or completeness is unproven. Duplicate, reordered, delayed,
+unrecognized, oversized, and malformed messages must be handled defensively
+without changing native state or destabilizing the agent.
+
+### 14.8 Credential and Data Boundaries
+
+Network and Protect API credentials must remain inside the authorized site-side
+ARGUS Agent security boundary and approved ARGUS-owned local secret storage;
+they do not require the Agent and both applications to be co-resident on one
+physical console. API-key material, authorization headers, session cookies,
+and equivalent credentials must never be transmitted to the central ARGUS
+Server, placed in telemetry, written to the offline spool, logged, included in
+audit event details, or exposed by diagnostics, exception reporting, crash
+reports, metrics, or compatibility fixtures.
+
+Collectors must extract only explicitly reviewed and normalized fields. No raw
+Network response, raw Protect response, raw WebSocket frame or payload, media,
+thumbnail, recording, image, audio, user identity, API credential, session
+material, or unreviewed vendor field may enter telemetry or the spool.
+
+Diagnostic capture must use an explicit safe schema. Truncation alone is not
+redaction. Unknown fields must be discarded before logging, normalization,
+spooling, or transmission.
+
+### 14.9 Discovery and Compatibility Manifests
+
+Application and version discovery must complete before a Network or Protect
+collector is activated. Discovery must be read-only, bounded, allowlisted, and
+supported by the selected compatibility manifest.
+
+Each supported platform and application-version range must have an
+evidence-backed compatibility manifest that defines:
+
+- Console family and applicable UniFi OS version range.
+- Application name and supported version range.
+- Local scheme, host constraint, port, base-path prefix, and TLS policy.
+- Exact allowed HTTP method and path-template pairs.
+- Exact allowed WebSocket path templates, if any.
+- Reviewed request, response, and message schemas.
+- Field meanings and normalized mappings.
+- Pagination, response-size, cadence, concurrency, timeout, retry, backoff, and
+  resource limits.
+- Credential-handle requirements and evidenced cross-application reuse, if any.
+- Proven unsupported capabilities and known compatibility limitations.
+- Source evidence and compatibility fixtures.
+
+A collector must fail closed when no manifest matches, discovery is
+inconclusive, the application is absent, the endpoint is unsupported, the
+schema is incompatible, or required fields are absent. These conditions become
+`UNKNOWN` or `UNAVAILABLE` with an appropriate safe reason; they must not be
+inferred as device, application, NVR, camera, WAN, VPN, or site failure.
+
+Compatibility fixtures must be derived from official documentation or approved
+lab evidence. Fixtures must contain only reviewed, non-secret, minimized fields
+and must identify their evidence and applicable version range.
+
+### 14.10 Resource and Failure Bounds
+
+Every local API collector must define and enforce:
+
+- Request and connection timeouts.
+- Maximum response and decompressed-response size.
+- Maximum WebSocket frame and message size.
+- Maximum pagination pages, records, and elapsed time.
+- Connection and collector concurrency.
+- Collector cadence with jitter.
+- Per-application and aggregate request rates.
+- In-memory buffer and queue limits.
+- Retry limits and retryable failure classes.
+- Exponential backoff with jitter.
+- Explicit `429` handling honoring a bounded valid `Retry-After` value when
+  present.
+- Authentication-failure behavior that does not create a high-frequency retry
+  loop.
+- CPU, RAM, process, thread, disk-write, and bandwidth budgets applicable to
+  the specific platform and version.
+
+Retries must never multiply unboundedly across pagination, reconciliation,
+WebSocket reconnects, application collectors, and spool replay. Native-service
+pressure, repeated failures, response growth, parser cost, low resources, or
+rate limiting must cause collection to defer, reduce, shed, or stop.
+
+Collectors must also:
+
+- Be capability-driven and version-aware.
+- Record relevant UniFi OS, Network, and Protect versions.
+- Isolate vendor payload parsing behind application-specific adapters.
+- Normalize only reviewed data before it reaches core health logic.
+- Preserve evidence-backed fixtures for every supported version.
+- Apply the redaction requirements of Section 13 before serialization.
+- Respect appliance resource budgets and native-service priority.
 
 ## 15. Offline Spool and Replay
 
@@ -672,6 +1002,52 @@ Minimum expectations:
 - Security regression tests for every corrected vulnerability.
 - Deterministic UniFi fixtures or simulators; tests must not depend on customer
   consoles.
+- Tests proving every UniFi HTTP collector can dispatch only an allowed method
+  and path-template pair from the selected compatibility manifest.
+- Tests proving every UniFi WebSocket collector can connect only to an allowed
+  path template and accept only reviewed message types and fields.
+- Tests proving generic or server-supplied methods, URLs, origins, ports, paths,
+  queries, bodies, headers, redirects, WebSocket destinations, and
+  subscriptions are rejected before network dispatch.
+- Tests proving administrator device selections cross the server/agent trust
+  boundary only as ARGUS-owned stable identifiers and bounded monitoring state.
+- Tests proving the Agent resolves ARGUS-owned identifiers through validated
+  current local inventory and rejects unknown, ambiguous, stale, unapproved,
+  mismatched, or server-supplied vendor identifiers before dispatch.
+- Tests proving `POST`, `PUT`, `PATCH`, and `DELETE` cannot be dispatched by
+  telemetry collectors even when the target operation is officially
+  documented.
+- Contract and fixture tests for application discovery, supported versions,
+  endpoint availability, schemas, field meanings, pagination, missing fields,
+  and unknown enum values.
+- Tests proving inventory, adoption, configuration, assignment, and enabled
+  facts are not treated as operational health.
+- Tests proving absent fields, unsupported endpoints, incompatible schemas,
+  unrecognized states, and unmatched manifests yield `UNKNOWN` or
+  `UNAVAILABLE`, not inferred failure.
+- Tests proving Protect `CONNECTED` establishes only Protect-reported
+  connectivity and does not establish recording, stream, image, audio,
+  firmware, storage, or complete hardware health.
+- Tests proving Protect source loss and ARGUS Agent loss make dependent camera
+  observations stale and ultimately `UNKNOWN`, not `OFFLINE`.
+- Tests for Protect snapshot and optional device-update WebSocket interaction,
+  including duplicate, reordered, delayed, malformed, oversized, unrecognized,
+  dropped, and buffered messages.
+- Tests proving periodic and post-reconnect snapshot reconciliation remains
+  mandatory when the Protect device-update WebSocket is enabled.
+- Tests proving agent-local receive counters, connection epochs, timestamps,
+  normalized ordering, and spool sequences are not labeled or interpreted as
+  Protect-provided sequence numbers.
+- Tests proving the Protect event WebSocket remains disabled in Phase 0.
+- Tests proving raw Network responses, raw Protect responses, raw WebSocket
+  payloads, media, user identity, credentials, session material, and unreviewed
+  fields cannot enter telemetry or the spool.
+- Tests proving Network and Protect use separate credential handles and that
+  cross-application secret reuse is rejected unless the selected compatibility
+  evidence expressly authorizes it.
+- Secret-redaction tests proving local UniFi credentials cannot appear in logs,
+  diagnostics, exceptions, audit details, metrics, fixtures, telemetry, or the
+  spool.
 - Migration tests from the previous supported database version.
 - Load tests for approximately 100 jittered agents before production rollout.
 - NOC viewport tests at 1920×1080, 1600×900, and 1366×768.
@@ -1200,13 +1576,60 @@ Define:
 - Separation of lifecycle privilege from telemetry privilege.
 - Compatibility and evidence validation for each supported platform/version.
 
+#### ADR-0007 — UniFi Local Application API Acquisition and Compatibility Strategy
+
+Define:
+
+- Application data ownership for Network, Protect, and future UniFi
+  Applications.
+- The strict data-source priority hierarchy.
+- Criteria and evidence required before an operating-system or experimental
+  fallback is permitted.
+- Separate Network and Protect adapters, schemas, compatibility manifests, and
+  credential handles.
+- Evidence requirements before one physical secret may be reused across
+  application credential handles.
+- Platform-, UniFi OS-, application-, and version-specific local origin,
+  base-path, port, and TLS rules.
+- Exact HTTP method plus path-template allowlisting.
+- Exact WebSocket path-template and message-type allowlisting.
+- ARGUS-owned stable identifiers for administrator device selection and the
+  local resolution of those identifiers to current vendor identifiers.
+- Validation that locally resolved vendor identifiers belong to the currently
+  discovered and approved local inventory before an allowlisted operation.
+- The prohibition on generic HTTP and WebSocket request capabilities.
+- The permanent prohibition on write and control operations.
+- Application and version discovery before collector activation.
+- Version-specific endpoint, schema, field, and compatibility fixtures.
+- The distinction between inventory/configuration facts and operational
+  evidence.
+- Protect camera connectivity semantics and explicitly unavailable health
+  concepts.
+- Protect snapshot, optional device-update WebSocket, and mandatory
+  reconciliation behavior.
+- The absence of assumed Protect sequencing, ordering, delivery, completeness,
+  and replay guarantees.
+- Phase 0 disablement of the Protect event WebSocket.
+- `UNKNOWN`, `UNAVAILABLE`, stale-data, source-loss, and unsupported-version
+  semantics.
+- Pagination, request, response, WebSocket, concurrency, cadence, timeout,
+  retry, backoff, `429`, and appliance-resource bounds.
+- Criteria for normalizing, retaining, discarding, redacting, spooling, and
+  transmitting vendor fields.
+- Protect application, NVR, camera, Network application, console, and agent
+  failure-source distinctions.
+- Compatibility evidence, lab validation, upgrade/restart/reconnect tests, and
+  support-claim requirements.
+
+ADR-0007 must be accepted before implementation of any Network or Protect
+collector.
+
 ### 26.2 Required Later When Relevant
 
 The following ADRs are required before their associated functionality is
 implemented, but they do not all block Phase 0:
 
 - Administrative authentication, MFA, session security, and break-glass access.
-- UniFi API and collector compatibility policy.
 - Configuration normalization, redaction, and hashing.
 - Audit immutability and security-event storage.
 - Probe-target safety and SSRF prevention.
@@ -1318,6 +1741,50 @@ Stop and ask the user for direction when:
   reconfigure, or interfere with a native UniFi service.
 - Lifecycle privileges could become accessible to telemetry collectors.
 - A local command cannot be shown to be read-only, bounded, and safe.
+- Stop before implementing a Network or Protect collector until ADR-0007 is
+  accepted.
+- Stop if no evidence-backed compatibility manifest matches the exact platform,
+  UniFi OS version, application, and application version.
+- Stop if a proposed telemetry client includes a generic HTTP request or
+  WebSocket connection capability or accepts arbitrary request components from
+  the ARGUS server.
+- Stop if the ARGUS server can supply a vendor-specific Network or Protect
+  device identifier as an HTTP path, WebSocket path, query, subscription, or
+  other local API request component.
+- Stop if the Agent can use a locally resolved vendor identifier without first
+  validating its current discovered and approved local inventory membership.
+- Stop if a proposed Network or Protect collector can dispatch a write-capable
+  method or control operation.
+- Stop if a collector depends on one universal local API origin, port, or path
+  prefix across all supported platforms.
+- Stop if Network and Protect are proposed to share one credential handle or
+  physical secret without exact-version official documentation or approved lab
+  evidence.
+- Stop if local UniFi API keys, authorization headers, session material, or
+  equivalent credentials could leave the console or enter logs, diagnostics,
+  audit details, metrics, fixtures, telemetry, or the spool.
+- Stop if inventory, configuration, adoption, assignment, or enabled state is
+  being treated as proof of operational health.
+- Stop if Protect `CONNECTED` is being interpreted as recording, stream, image,
+  audio, firmware, storage, or complete hardware health.
+- Stop if loss of Protect or the ARGUS Agent would mark dependent cameras
+  `OFFLINE` rather than stale and ultimately `UNKNOWN`.
+- Stop if a Protect WebSocket is proposed as a replacement for the initial,
+  periodic, or post-reconnect snapshot reconciliation path.
+- Stop if agent-local ordering metadata is being represented as a
+  Protect-provided source sequence or delivery guarantee.
+- Stop if the Protect event WebSocket is proposed for Phase 0.
+- Stop if raw Network or Protect responses, raw WebSocket payloads, media, user
+  identity, credentials, session material, or unreviewed fields could enter
+  telemetry or the spool.
+- Stop if missing fields, unsupported endpoints, incompatible schemas, unknown
+  state values, or source loss are being converted into inferred device or
+  application failure.
+- Stop if an operating-system fallback lacks an evidence-backed justification
+  showing why higher-priority documented sources are insufficient.
+- Stop if an internal database, private application file, undocumented
+  endpoint, GUI, browser, or reverse-engineered interface is proposed as a
+  normal fallback.
 - A UniFi compatibility, persistence, upgrade-survival, dependency, or
   resource-budget claim lacks evidence.
 - Resource pressure cannot be safely resolved through telemetry reduction,
